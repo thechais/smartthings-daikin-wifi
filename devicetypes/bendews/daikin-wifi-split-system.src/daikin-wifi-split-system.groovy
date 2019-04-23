@@ -1,26 +1,37 @@
 /**
  *  Daikin WiFi Split System
- *  V 1.3 - 10/01/2018
+ *  V 1.4.1 - 11/12/2018
  *
  *  Copyright 2018 Ben Dews - https://bendews.com
+ *  Contribution by RBoy Apps
  *
- *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
- *  in compliance with the License. You may obtain a copy of the License at:
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- *  Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
- *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
- *  for the specific language governing permissions and limitations under the License.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ * 
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
  *	
  *
  *	Changelog:
  *
- *  1.0 (06/01/2018) - Initial 1.0 Release. All Temperature, Mode and Fan functions working.
- *  1.1 (06/01/2018) - Allow user to change device icon.
- *  1.2 (07/01/2018) - Fixed issue preventing user from setting desired temperature, added switch and temperature capabilities
- *  1.3 (10/01/2018) - Added support for outside temperature value, 1 minute refresh option (not reccomended) and fixed thermostat and switch state reporting when turned off
- *
+ *  1.0     (06/01/2018) - Initial 1.0 Release. All Temperature, Mode and Fan functions working.
+ *  1.1     (06/01/2018) - Allow user to change device icon.
+ *  1.2     (07/01/2018) - Fixed issue preventing user from setting desired temperature, added switch and temperature capabilities
+ *  1.3     (10/01/2018) - Added support for outside temperature value, 1 minute refresh option (not reccomended) and fixed thermostat and switch state reporting when turned off
+ *  1.4     (07/06/2018) - Added Fahrenheit support
+ *  1.4.1   (11/12/2018) - Implemented fix for B-type adapters ('Host' header case) - Big thanks to @WGentine in the SmartThings community
  *
  */
 
@@ -90,6 +101,7 @@ metadata {
         input("ipAddress", "string", title:"Daikin WiFi IP Address", required:true, displayDuringSetup:true)
         input("ipPort", "string", title:"Daikin WiFi Port (default: 80)", defaultValue:80, required:true, displayDuringSetup:true)
         input("refreshInterval", "enum", title: "Refresh Interval in minutes", defaultValue: "10", required:true, displayDuringSetup:true, options: ["1","5","10","15","30"])
+        input("displayFahrenheit", "boolean", title: "Display Fahrenheit", defaultValue: false, displayDuringSetup:true)
     }
 
     simulator {
@@ -109,7 +121,15 @@ metadata {
                 [value: 23, color: "#44b621"],
                 [value: 28, color: "#f1d801"],
                 [value: 35, color: "#d04e00"],
-                [value: 37, color: "#bc2323"]
+                [value: 37, color: "#bc2323"],
+                // Fahrenheit
+				[value: 40, color: "#153591"],
+				[value: 44, color: "#1e9cbb"],
+				[value: 59, color: "#90d2a7"],
+				[value: 74, color: "#44b621"],
+				[value: 82, color: "#f1d801"],
+				[value: 95, color: "#d04e00"],
+				[value: 98, color: "#bc2323"]
                 ])
             }
 
@@ -182,13 +202,22 @@ metadata {
         // Outside Temp
         valueTile("outsideTemp", "device.outsideTemp", width:2, height:2, inactiveLabel: false) {
             state("val", label:'Outside: ${currentValue}°', backgroundColors:[
+                // Celsius
                 [value: 0, color: "#153591"],
                 [value: 7, color: "#1e9cbb"],
                 [value: 15, color: "#90d2a7"],
                 [value: 23, color: "#44b621"],
                 [value: 28, color: "#f1d801"],
                 [value: 35, color: "#d04e00"],
-                [value: 37, color: "#bc2323"]
+                [value: 37, color: "#bc2323"],
+                // Fahrenheit
+				[value: 40, color: "#153591"],
+				[value: 44, color: "#1e9cbb"],
+				[value: 59, color: "#90d2a7"],
+				[value: 74, color: "#44b621"],
+				[value: 82, color: "#f1d801"],
+				[value: 95, color: "#d04e00"],
+				[value: 98, color: "#bc2323"]
                 ])
         }
 
@@ -240,10 +269,25 @@ private apiGet(def apiCommand) {
     def hubAction = new physicalgraph.device.HubAction(
         method: "GET",
         path: apiCommand,
-        headers: [HOST:getHostAddress()]
+        headers: [Host:getHostAddress()]
     )
 
     return hubAction
+}
+
+private roundHalf(Double num){
+    return ((num * 2).round() / 2)
+}
+
+private convertTemp(Double temp, Boolean isFahrenheit){
+    log.debug "Converting ${temp}, Fahrenheit: ${isFahrenheit}"
+    Double convertedTemp
+    if (isFahrenheit) {
+        convertedTemp = ((temp - 32) * 5) / 9
+        return convertedTemp.round()
+    }
+    convertedTemp = ((temp * 9) / 5) + 32
+    return convertedTemp.round()
 }
 
 private delayAction(long time) {
@@ -254,6 +298,18 @@ private delayAction(long time) {
 
 
 // Daikin Specific Private Functions -------
+private parseTemp(Double temp, String method){
+    log.debug "${method}-ing ${temp}"
+    if (settings.displayFahrenheit.toBoolean()) {
+        switch(method) {
+            case "GET":
+                return convertTemp(temp, false)
+            case "SET":
+                return convertTemp(temp, true)
+        }
+    }
+    return temp
+}
 private parseDaikinResp(String response) {
     // Convert Daikin response to Groovy Map
     // Convert to JSON
@@ -295,7 +351,7 @@ private updateDaikinDevice(Boolean turnOff = false){
     log.debug "${currentfDirKey}"
     
     // Get target temperature set in Smartthings
-    def targetTemp = device.currentValue("targetTemp")
+    def targetTemp = parseTemp(device.currentValue("targetTemp"), "SET")
 
     // Set power mode in HTTP call
     if (turnOff) {
@@ -449,18 +505,20 @@ def parse(String description) {
     //  Get inside temperature sensor info
     if (deviceInsideTempSensor){
         // log.debug "htemp: ${deviceInsideTempSensor}"
-        events.add(createEvent(name: "temperature", value: deviceInsideTempSensor))
+        String insideTemp = parseTemp(Double.parseDouble(deviceInsideTempSensor), "GET")
+        events.add(createEvent(name: "temperature", value: insideTemp))
     }
     //  Get outside temperature sensor info
     if (deviceOutsideTempSensor){
         // log.debug "otemp: ${deviceOutsideTempSensor}"
-        events.add(createEvent(name: "outsideTemp", value: deviceOutsideTempSensor))
+        String outsideTemp = parseTemp(Double.parseDouble(deviceOutsideTempSensor), "GET")
+        events.add(createEvent(name: "outsideTemp", value: outsideTemp))
     }
     //  Get currently set target temperature
     if (deviceTargetTemp){
         // log.debug "stemp: ${deviceTargetTemp}"
         // Value of "M" is for modes that don't support temperature changes, make value null
-        targetTempVal = deviceTargetTemp == "M" ? null : deviceTargetTemp
+        targetTempVal = deviceTargetTemp.isNumber() ? parseTemp(Double.parseDouble(deviceTargetTemp), "GET") : null
     }
     //  Get current fan rate
     if (devicefanRate){
@@ -664,18 +722,29 @@ def setFanRate(def fanRate) {
     def currFanRate = device.currentValue("fanRate")
     // Check that rate is different before setting.
     // TODO: Clean messy IF statements
-    if (currFanRate != fanRate){
-        if (fanRate == 0){
-            sendEvent(name: "fanRate", value: "Auto")
-        } else {
-            sendEvent(name: "fanRate", value: fanRate)
-        }
-        if (fanAPISupported()){
-            updateDaikinDevice(false)
-        } else {
-            sendEvent(name: "fanRate", value: "Not Supported")
-        }
-    }
+	if (currFanRate != fanRate){
+		if (fanAPISupported()){
+			sendEvent(name: "supportedThermostatFanModes", value: ["auto", "on"], displayed: false) // We don't support circulate at this time
+			if (fanRate == 0){
+				sendEvent(name: "fanRate", value: "Auto")
+				sendEvent(name: "thermostatFanMode", value: "auto", displayed: false)
+			} else {
+				sendEvent(name: "fanRate", value: fanRate)
+				switch (fanRate) {
+					case "Auto":
+						sendEvent(name: "thermostatFanMode", value: "auto", displayed: false)
+						break
+
+					default: // all other modes indicate fan on
+						sendEvent(name: "thermostatFanMode", value: "on", displayed: false)
+						break
+				}
+			}
+			updateDaikinDevice(false)
+		} else {
+			sendEvent(name: "fanRate", value: "Not Supported")
+		}
+	}
 }
 
 def fanRateAuto(){
@@ -726,25 +795,40 @@ def fanDirectionVertical() {
 
 def fanOn() {
     log.debug "Executing 'fanOn'"
-    updateEvents(mode: "fan", updateDevice: true)
+    fanRateSilence() // Should this be made configurable to allow the user to select the default fan rate?
 }
 
 def fanAuto() {
     log.debug "Executing 'fanAuto'"
-    sendEvent(name: "fanRate", value: "Auto")
-    updateEvents(mode: "fan", updateDevice: true)
+	fanRateAuto()
 }
 
 // TODO: Implement these functions if possible
-// def fanCirculate() {
-    // log.debug "Executing 'fanCirculate'"
+ def fanCirculate() {
+    log.warn "Executing 'fanCirculate' not currently supported"
     // TODO: handle 'fanCirculate' command
-// }
+ }
 
-// def setThermostatFanMode() {
-    // log.debug "Executing 'setThermostatFanMode'"
-    // TODO: handle 'setThermostatFanMode' command
-// }
+ def setThermostatFanMode(String value) {
+    log.debug "Executing 'setThermostatFanMode' with fan mode $value"
+	switch(value){
+		case "auto":
+			fanAuto()
+			break
+		
+		case "on":
+			fanOn()
+			break
+		
+		case "circulate":
+			fanCirculate()
+			break
+		
+		default:
+			log.warn "Unknown fan mode: $value"
+			break
+	}
+ }
 
 // def setSchedule() {
     // log.debug "Executing 'setSchedule'"
